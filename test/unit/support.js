@@ -83,6 +83,7 @@ testIframeWithCallback( "box-sizing does not affect jQuery.support.shrinkWrapBlo
 			"reliableMarginRight":true,
 			"noCloneChecked":true,
 			"optDisabled":true,
+			"option":true,
 			"radioValue":true,
 			"checkClone":true,
 			"appendChecked":true,
@@ -117,6 +118,7 @@ testIframeWithCallback( "box-sizing does not affect jQuery.support.shrinkWrapBlo
 			"reliableMarginRight":true,
 			"noCloneChecked":true,
 			"optDisabled":true,
+			"option":true,
 			"radioValue":false,
 			"checkClone":true,
 			"appendChecked":true,
@@ -151,6 +153,7 @@ testIframeWithCallback( "box-sizing does not affect jQuery.support.shrinkWrapBlo
 			"reliableMarginRight":true,
 			"noCloneChecked":false,
 			"optDisabled":true,
+			"option":true,
 			"radioValue":false,
 			"checkClone":true,
 			"appendChecked":true,
@@ -185,6 +188,7 @@ testIframeWithCallback( "box-sizing does not affect jQuery.support.shrinkWrapBlo
 			"reliableMarginRight":true,
 			"noCloneChecked":false,
 			"optDisabled":true,
+			"option":false,
 			"radioValue":false,
 			"checkClone":true,
 			"appendChecked":true,
@@ -219,6 +223,7 @@ testIframeWithCallback( "box-sizing does not affect jQuery.support.shrinkWrapBlo
 			"reliableMarginRight":true,
 			"noCloneChecked":false,
 			"optDisabled":true,
+			"option":false,
 			"radioValue":false,
 			"checkClone":true,
 			"appendChecked":true,
@@ -253,6 +258,7 @@ testIframeWithCallback( "box-sizing does not affect jQuery.support.shrinkWrapBlo
 			"noCloneEvent": false,
 			"opacity": false,
 			"optDisabled": true,
+			"option": false,
 			"optSelected": false,
 			"radioValue": false,
 			"reliableHiddenOffsets": false,
@@ -287,6 +293,7 @@ testIframeWithCallback( "box-sizing does not affect jQuery.support.shrinkWrapBlo
 			"reliableMarginRight":true,
 			"noCloneChecked":false,
 			"optDisabled":true,
+			"option":false,
 			"radioValue":false,
 			"checkClone":false,
 			"appendChecked":false,
@@ -321,6 +328,7 @@ testIframeWithCallback( "box-sizing does not affect jQuery.support.shrinkWrapBlo
 			"reliableMarginRight":true,
 			"noCloneChecked":true,
 			"optDisabled":true,
+			"option":true,
 			"radioValue":true,
 			"checkClone":false,
 			"appendChecked":false,
@@ -355,6 +363,7 @@ testIframeWithCallback( "box-sizing does not affect jQuery.support.shrinkWrapBlo
 			"reliableMarginRight":true,
 			"noCloneChecked":true,
 			"optDisabled":true,
+			"option":true,
 			"radioValue":true,
 			"checkClone":true,
 			"appendChecked":true,
@@ -369,7 +378,7 @@ testIframeWithCallback( "box-sizing does not affect jQuery.support.shrinkWrapBlo
 
 	if ( expected ) {
 		test("Verify that the support tests resolve as expected per browser", function() {
-			expect( 31 );
+			expect( 32 );
 
 			for ( var i in expected ) {
 				if ( jQuery.ajax || i !== "ajax" && i !== "cors" ) {

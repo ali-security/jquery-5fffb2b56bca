@@ -1541,7 +1541,7 @@ var testHtml = function( valueObj ) {
 		div = jQuery("<div></div>"),
 		fixture = jQuery("#qunit-fixture");
 
-	div.html( valueObj("<div id='parent_1'><div id='child_1'/></div><div id='parent_2'/>") );
+	div.html( valueObj("<div id='parent_1'><div id='child_1'></div></div><div id='parent_2'></div>") );
 	equal( div.children().length, 2, "Found children" );
 	equal( div.children().children().length, 1, "Found grandchild" );
 
@@ -2063,7 +2063,7 @@ test( "Guard against exceptions when clearing safeChildNodes", function() {
 	var div;
 
 	try {
-		div = jQuery("<div/><hr/><code/><b/>");
+		div = jQuery("<div></div><hr/><code></code><b></b>");
 	} catch(e) {}
 
 	ok( div && div.jquery, "Created nodes safely, guarded against exceptions on safeChildNodes[ -1 ]" );
@@ -2226,7 +2226,7 @@ test( "insertAfter, insertBefore, etc do not work when destination is original e
 test( "Index for function argument should be received (#13094)", 2, function() {
 	var i = 0;
 
-	jQuery("<div/><div/>").before(function( index ) {
+	jQuery("<div></div><div></div>").before(function( index ) {
 		equal( index, i++, "Index should be correct" );
 	});
 
@@ -2239,4 +2239,161 @@ test( "Make sure jQuery.fn.remove can work on elements in documentFragment", 1, 
 	jQuery( div ).remove();
 
 	equal( fragment.childNodes.length, 0, "div element was removed from documentFragment" );
+});
+
+test( "XHTML-style self-closing non-void tags are not expanded (gh-4642)", function() {
+
+	expect( 5 );
+
+	var div = jQuery("<div></div>");
+
+	div.html("<div/><div/>");
+	equal( div.children().length, 1, "html(): one child" );
+	equal( div.children().children().length, 1, "html(): one grandchild" );
+
+	div = jQuery("<div></div>").append("<div/><div/>");
+	equal( div.children().length, 1, "append(): one child" );
+	equal( div.children().children().length, 1, "append(): one grandchild" );
+
+	equal( jQuery("<div/><div/>").length, 1, "jQuery(): one top-level element" );
+});
+
+test( "Sanitized HTML doesn't get unsanitized", function() {
+
+	var container, i,
+		executed = {},
+		htmlStrings = [
+			// Thanks to Masato Kinugawa from Cure53 for providing the following test cases.
+			// Note: the xss() argument of each payload must equal its index in this array.
+			"<img alt=\"<x\" title=\"/><img src=url404 onerror=xss(0)>\">",
+			"<img alt=\"\n<x\" title=\"/>\n<img src=url404 onerror=xss(1)>\">",
+			"<style><style/><img src=url404 onerror=xss(2)>",
+			"<xmp><xmp/><img src=url404 onerror=xss(3)>",
+			"<title><title /><img src=url404 onerror=xss(4)>",
+			"<iframe><iframe/><img src=url404 onerror=xss(5)>",
+			"<noframes><noframes/><img src=url404 onerror=xss(6)>",
+			"<noscript><noscript/><img src=url404 onerror=xss(7)>",
+			"<foo\" alt=\"\" title=\"/><img src=url404 onerror=xss(8)>\">",
+			"<img alt=\"<x\" title=\"\" src=\"/><img src=url404 onerror=xss(9)>\">",
+			"<noscript/><img src=url404 onerror=xss(10)>",
+			"<option><style></option></select><img src=url404 onerror=xss(11)></style>",
+			"<template><style></template><img src=url404 onerror=xss(12)>"
+		];
+
+	expect( htmlStrings.length );
+
+	Globals.register("xss");
+	window.xss = function( index ) {
+		executed[ index ] = true;
+	};
+
+	container = jQuery("<div></div>").appendTo("#qunit-fixture");
+
+	for ( i = 0; i < htmlStrings.length; i++ ) {
+		jQuery("<div></div>").appendTo( container ).html( htmlStrings[ i ] );
+	}
+
+	stop();
+	setTimeout(function() {
+		for ( i = 0; i < htmlStrings.length; i++ ) {
+			ok( !executed[ i ], "htmlString #" + i + " doesn't execute the payload: " + htmlStrings[ i ] );
+		}
+		start();
+	}, 1000 );
+});
+
+test( "<option>/<optgroup> HTML isn't parsed inside a <select> wrapper (gh-4647)", function() {
+
+	var div,
+		probe = document.createElement("div");
+
+	// Support: IE <=9 only
+	// IE <=9 replaces <option> tags with their contents when inserted outside of
+	// the select element, so the select wrapper is still required there.
+	probe.innerHTML = "<option></option>";
+	if ( !probe.lastChild ) {
+		expect( 1 );
+		ok( true, "<option> needs a <select> wrapper in this browser" );
+		return;
+	}
+
+	expect( 6 );
+
+	// Inside a <select> wrapper the stray </select> would close the wrapper and
+	// change how the rest of the markup is parsed.
+	div = jQuery("<option>a</option></select><b>b</b>");
+	equal( div.length, 2, "jQuery(): option and its sibling are both created" );
+	equal( div[ 0 ] && div[ 0 ].nodeName.toLowerCase(), "option", "jQuery(): first node is the option" );
+	equal( div[ 1 ] && div[ 1 ].nodeName.toLowerCase(), "b", "jQuery(): second node is the sibling" );
+
+	equal( jQuery.parseHTML("<optgroup label='g'></optgroup></select><b>b</b>").length, 2,
+		"jQuery.parseHTML(): optgroup and its sibling are both created" );
+
+	div = jQuery("<div></div>").html("<option>a</option></select><b>b</b>");
+	equal( div.children().length, 2, "html(): option and its sibling are both created" );
+
+	div = jQuery("<div></div>").append("<optgroup label='g'></optgroup></select><b>b</b>");
+	equal( div.children().length, 2, "append(): optgroup and its sibling are both created" );
+});
+
+test( "Sanitized <option>/<optgroup> HTML doesn't get unsanitized by any manipulation method", function() {
+
+	var container, i, j, payload,
+		counter = 0,
+		executed = {},
+		payloads = [],
+		templates = [
+			"<option><style></option></select><img src=url404 onerror=xss(#)></style>",
+			"<optgroup><style></optgroup></select><img src=url404 onerror=xss(#)></style>",
+			"<option><xmp></option></select><img src=url404 onerror=xss(#)></xmp>"
+		],
+		methods = [
+			[ "html", function( html ) {
+				jQuery("<div></div>").appendTo( container ).html( html );
+			} ],
+			[ "append", function( html ) {
+				jQuery("<div></div>").appendTo( container ).append( html );
+			} ],
+			[ "prepend", function( html ) {
+				jQuery("<div></div>").appendTo( container ).prepend( html );
+			} ],
+			[ "before", function( html ) {
+				jQuery("<div></div>").appendTo( container ).before( html );
+			} ],
+			[ "after", function( html ) {
+				jQuery("<div></div>").appendTo( container ).after( html );
+			} ],
+			[ "jQuery", function( html ) {
+				jQuery( html );
+			} ],
+			[ "jQuery.parseHTML", function( html ) {
+				jQuery.parseHTML( html );
+			} ]
+		];
+
+	expect( templates.length * methods.length );
+
+	Globals.register("xss");
+	window.xss = function( index ) {
+		executed[ index ] = true;
+	};
+
+	container = jQuery("<div></div>").appendTo("#qunit-fixture");
+
+	for ( i = 0; i < templates.length; i++ ) {
+		for ( j = 0; j < methods.length; j++ ) {
+			payload = templates[ i ].replace( "#", counter );
+			payloads.push( methods[ j ][ 0 ] + "( " + payload + " )" );
+			methods[ j ][ 1 ]( payload );
+			counter++;
+		}
+	}
+
+	stop();
+	setTimeout(function() {
+		for ( i = 0; i < payloads.length; i++ ) {
+			ok( !executed[ i ], "Payload #" + i + " isn't executed: " + payloads[ i ] );
+		}
+		start();
+	}, 1000 );
 });

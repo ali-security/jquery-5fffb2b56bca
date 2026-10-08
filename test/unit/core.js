@@ -31,7 +31,7 @@ test("jQuery()", function() {
 		main = jQuery("#qunit-fixture"),
 		code = jQuery("<code/>"),
 		img = jQuery("<img/>"),
-		div = jQuery("<div/><hr/><code/><b/>"),
+		div = jQuery("<div></div><hr/><code></code><b></b>"),
 		exec = false,
 		lng = "",
 		expected = 21,
