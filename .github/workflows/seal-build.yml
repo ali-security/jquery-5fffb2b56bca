@@ -1,0 +1,198 @@
+name: seal-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: "QUnit filter (module or test-name substring); empty runs the full suite"
+        required: false
+        default: ""
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # .gitmodules points at dead git:// URLs; materialize the pinned
+      # submodule commits over https instead (dirs exist but are empty).
+      - name: Materialize submodules (sizzle, qunit) at pinned SHAs
+        shell: bash
+        run: |
+          set -euo pipefail
+          materialize() {
+            local url="$1" sha="$2" dest="$3"
+            local tmp
+            tmp="$(mktemp -d)"
+            git -C "$tmp" init -q
+            git -C "$tmp" remote add origin "$url"
+            if ! git -C "$tmp" fetch --depth 1 origin "$sha"; then
+              git -C "$tmp" fetch origin
+            fi
+            if git -C "$tmp" rev-parse --verify -q FETCH_HEAD >/dev/null && \
+               [ "$(git -C "$tmp" rev-parse FETCH_HEAD)" = "$sha" ]; then
+              git -C "$tmp" checkout -q FETCH_HEAD
+            else
+              git -C "$tmp" checkout -q "$sha"
+            fi
+            echo "$dest @ $(git -C "$tmp" rev-parse HEAD)"
+            rm -rf "$tmp/.git"
+            mkdir -p "$dest"
+            cp -a "$tmp/." "$dest/"
+            rm -rf "$tmp"
+          }
+          materialize https://github.com/jquery/sizzle.git c0d9badeb5dac649d0ba7824efaebbe4155369b5 src/sizzle
+          materialize https://github.com/jquery/qunit.git 6ca3721222109997540bd6d9ccd396902e0ad2f9 test/qunit
+          test -f src/sizzle/sizzle.js
+          test -f test/qunit/qunit/qunit.js
+          ls -la src/sizzle test/qunit
+
+      - name: Write container scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/seal"
+          cat > "$RUNNER_TEMP/seal/build.sh" <<'SEAL_BUILD_EOF'
+          set -euo pipefail
+          npm config set registry https://time-machines-npm.sealsecurity.io/
+          npm config set //time-machines-npm.sealsecurity.io/:_authToken 2014-07-17T22:01:17.886000Z
+          # npm 2 only sends the token when always-auth is on
+          npm config set always-auth true
+          node --version
+          npm --version
+          npm install
+          # grunt 0.4 ships no bin; jquery 1.9.1 does not list grunt-cli
+          npm install -g grunt-cli
+          # = `npm test` (grunt default) minus update_submodules, which runs
+          # `git submodule update` against dead git:// URLs; the submodule
+          # content was materialized over https in an earlier step.
+          grunt selector 'build:*:*' jshint uglify 'dist:*'
+          ls -la dist
+          # The repo-root jquery.min.js is packed as-is, and Seal's per-CVE
+          # patch capture excludes *.min.js, so ship the minified file
+          # regenerated from the patched src/ (grunt `dist` already rewrites it
+          # to the release layout). jquery.js / jquery.min.map stay as patched.
+          cp dist/jquery.min.js jquery.min.js
+          chown -R "$HOST_UID:$HOST_GID" /work
+          SEAL_BUILD_EOF
+          cat > "$RUNNER_TEMP/seal/pack.sh" <<'SEAL_PACK_EOF'
+          set -euo pipefail
+          node --version
+          npm --version
+          # The reference tarball has zero files under either submodule dir.
+          rm -rf node_modules src/sizzle test/qunit
+          mkdir src/sizzle test/qunit
+          rm -rf .github
+          rm -f test/seal-browser-runner.js
+          rm -rf dist src/selector.js
+          chown -R "$HOST_UID:$HOST_GID" /work
+          # npm 2.15.1 ships .gitignore as package/.npmignore (as the reference does)
+          npm pack
+          mkdir -p /work/seal-out
+          mv jquery-1.9.1.tgz /work/seal-out/
+          tar tzf /work/seal-out/jquery-1.9.1.tgz | sort
+          echo "member count: $(tar tzf /work/seal-out/jquery-1.9.1.tgz | wc -l)"
+          chown -R "$HOST_UID:$HOST_GID" /work
+          SEAL_PACK_EOF
+          chmod +x "$RUNNER_TEMP/seal/build.sh" "$RUNNER_TEMP/seal/pack.sh"
+
+      - name: Build (node 0.10 / npm 2, grunt)
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -v "$RUNNER_TEMP/seal:/seal" \
+            -w /work \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+            node:0.10-wheezy bash /seal/build.sh
+          test -f dist/jquery.js
+          test -f dist/jquery.min.js
+
+      - name: Set up Node 20 (test driver)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install headless browser driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/driver"
+          cd "$RUNNER_TEMP/driver"
+          npm init -y
+          npm install puppeteer-core@22
+
+      - name: Locate Chrome and PHP
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME_PATH="${CHROME_BIN:-$(command -v google-chrome)}"
+          echo "CHROME_PATH=$CHROME_PATH"
+          "$CHROME_PATH" --version
+          php --version
+          echo "CHROME_PATH=$CHROME_PATH" >> "$GITHUB_ENV"
+
+      # The project's real QUnit unit suite (upstream ran it in browsers via
+      # TestSwarm), served by PHP for the ajax fixtures, in headless Chrome.
+      - name: Run QUnit test suite (headless Chrome)
+        shell: bash
+        env:
+          SEAL_TEST_FILTER: ${{ inputs.test-filter }}
+          # Environment-dependent in modern headless Chrome (not jQuery bugs):
+          # widows/orphans default is now "2"; Blink snaps offsets to 1/64 px;
+          # Chrome's :lang() no longer matches escaped backslashes.
+          SEAL_SKIP_TESTS: >-
+            css: widows & orphans #8936||offset: fractions (see #7730 and #7885)||Sizzle: selector: pseudo - :lang
+        run: |
+          set -euo pipefail
+          # Multiple workers are load-bearing: single-process php -S starves
+          # the fixture iframes the suite opens.
+          PHP_CLI_SERVER_WORKERS=10 php -S 127.0.0.1:8000 -t . > "$RUNNER_TEMP/php.log" 2>&1 &
+          PHP_PID=$!
+          ready=0
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/test/index.html > /dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "PHP server did not come up"
+            cat "$RUNNER_TEMP/php.log"
+            exit 1
+          fi
+          status=0
+          NODE_PATH="$RUNNER_TEMP/driver/node_modules" \
+            node test/seal-browser-runner.js "http://127.0.0.1:8000/test/index.html?dev" \
+            || status=$?
+          if kill -0 "$PHP_PID" 2>/dev/null; then
+            kill "$PHP_PID"
+          fi
+          if [ "$status" -ne 0 ]; then
+            echo "--- php.log (tail) ---"
+            tail -n 100 "$RUNNER_TEMP/php.log"
+          fi
+          exit "$status"
+
+      - name: Pack (node 0.10 / npm 2)
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -v "$RUNNER_TEMP/seal:/seal" \
+            -w /work \
+            -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+            node:0.10-wheezy bash /seal/pack.sh
+          ls -la seal-out
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jquery-npm
+          path: seal-out/jquery-1.9.1.tgz
+          if-no-files-found: error
