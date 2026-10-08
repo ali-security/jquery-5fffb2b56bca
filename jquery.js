@@ -8258,6 +8258,13 @@ function ajaxConvert( s, response ) {
 
 	return { state: "success", data: response };
 }
+// Prevent auto-execution of scripts when no explicit dataType was provided (See gh-2432)
+jQuery.ajaxPrefilter( function( s ) {
+	if ( s.crossDomain ) {
+		s.contents.script = false;
+	}
+});
+
 // Install script dataType
 jQuery.ajaxSetup({
 	accepts: {
